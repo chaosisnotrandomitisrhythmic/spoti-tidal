@@ -17,6 +17,10 @@ tidal_session.json
 transfer_checkpoint.json
 transfer_checkpoint_completed_*.json
 
+# Music library and export files
+music_library.csv
+unavailable_on_*.csv
+
 # Log files
 transfer_log_*.txt
 

@@ -31,6 +31,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Set
 
+from library_manager import LibraryManager
+
 # Load environment variables from .env file
 try:
     from dotenv import load_dotenv
@@ -58,7 +60,8 @@ class SpotifyToTidalTransfer:
     and checkpoint-based resume functionality.
     """
 
-    def __init__(self, checkpoint_file: str = "transfer_checkpoint.json", fresh_start: bool = False, sync_only: bool = False):
+    def __init__(self, checkpoint_file: str = "transfer_checkpoint.json", fresh_start: bool = False,
+                 sync_only: bool = False, library_file: str = "music_library.csv"):
         """
         Initialize the transfer manager.
 
@@ -66,6 +69,7 @@ class SpotifyToTidalTransfer:
             checkpoint_file: Path to save/load transfer progress
             fresh_start: If True, ignore existing checkpoint and start fresh
             sync_only: If True, only sync playlists that have new tracks (skip fully synced)
+            library_file: Path to the music library CSV for cross-platform tracking
         """
         self.spotify = None
         self.tidal = None
@@ -84,6 +88,9 @@ class SpotifyToTidalTransfer:
         self.sync_only = sync_only
         # Cache of existing TIDAL playlists: {name: {"id": str, "track_count": int, "track_ids": Set}}
         self.tidal_playlist_cache = {}
+        # Library manager for cross-platform track tracking
+        self.library = LibraryManager(library_file)
+        self.library_file = library_file
 
     def log(self, message: str, also_print: bool = True):
         """Log message to file and optionally print."""
@@ -233,34 +240,38 @@ class SpotifyToTidalTransfer:
             self.log(f"WARNING: Could not fetch TIDAL playlist track count: {e}")
             return 0
 
-    def is_playlist_synced(self, spotify_playlist: Dict) -> bool:
+    def is_playlist_synced(self, spotify_playlist: Dict, spotify_tracks: Optional[List[Dict]] = None) -> bool:
         """
-        Check if a Spotify playlist is already fully synced to TIDAL.
+        Check if a Spotify playlist is already fully synced to TIDAL using exact track matching.
 
-        A playlist is considered synced if:
-        1. A TIDAL playlist with the same name exists
-        2. The TIDAL playlist has at least as many tracks as Spotify
-           (accounting for ~10-15% of tracks not being available on TIDAL)
+        A playlist is synced when ALL tracks have been searched on TIDAL
+        (regardless of whether they were found or not).
+
+        Args:
+            spotify_playlist: Spotify playlist dict
+            spotify_tracks: Optional pre-fetched list of tracks (avoids extra API call)
+
+        Returns:
+            True if all tracks have been searched on TIDAL
         """
         name = spotify_playlist['name']
-        spotify_track_count = spotify_playlist['tracks']['total']
+        spotify_id = spotify_playlist['id']
 
+        # Must have a TIDAL playlist to be considered synced
         if name not in self.tidal_playlist_cache:
             return False
 
-        tidal_info = self.tidal_playlist_cache[name]
-        tidal_track_count = tidal_info.get("track_count")
+        # Get track IDs for this playlist
+        if spotify_tracks is None:
+            spotify_tracks = self.get_all_playlist_tracks(spotify_id)
 
-        if tidal_track_count is None:
-            # Need to fetch track count
-            tidal_track_count = self.get_tidal_playlist_track_count(tidal_info["id"])
-            self.tidal_playlist_cache[name]["track_count"] = tidal_track_count
+        if not spotify_tracks:
+            return True  # Empty playlist is considered synced
 
-        # Consider synced if TIDAL has at least 80% of Spotify tracks
-        # (accounting for tracks not available on TIDAL)
-        min_expected = int(spotify_track_count * 0.80)
+        track_ids = {t['id'] for t in spotify_tracks if t.get('id')}
 
-        return tidal_track_count >= min_expected
+        # Use library manager for exact matching
+        return self.library.is_playlist_synced(spotify_id, track_ids, platform='tidal')
 
     # ==================== Authentication ====================
 
@@ -490,6 +501,16 @@ class SpotifyToTidalTransfer:
 
         self.log(f"Retrieved {len(spotify_tracks)} tracks")
 
+        # Register all tracks in library
+        for track in spotify_tracks:
+            if track.get('id'):
+                self.library.add_track(
+                    spotify_id=track['id'],
+                    track_name=track['name'],
+                    artist_name=track['artists'][0] if track['artists'] else 'Unknown',
+                    playlist_id=spotify_id
+                )
+
         # Check for existing TIDAL playlist (duplicate prevention)
         existing_tidal_id = checkpoint_entry.get("tidal_playlist_id")
         if not existing_tidal_id:
@@ -548,6 +569,7 @@ class SpotifyToTidalTransfer:
         for idx, track in track_pbar:
             track_name = track['name']
             artist_name = track['artists'][0] if track['artists'] else "Unknown"
+            spotify_track_id = track.get('id')
 
             track_pbar.set_postfix({
                 "found": found_count,
@@ -555,7 +577,29 @@ class SpotifyToTidalTransfer:
                 "skipped": skipped_count
             })
 
-            tidal_track_id = self.search_tidal_track(track_name, artist_name, throttle)
+            # Check if we already know about this track from library
+            library_track = self.library.get_track(spotify_track_id) if spotify_track_id else None
+
+            # If we already searched this track and know it's unavailable, skip the search
+            if library_track and library_track.get('tidal_available') is False:
+                not_found_count += 1
+                self.log(f"    ❌ Not on TIDAL (from library): {artist_name} - {track_name}", False)
+                continue
+
+            # If we already have the TIDAL ID, use it directly
+            if library_track and library_track.get('tidal_id'):
+                tidal_track_id = library_track['tidal_id']
+            else:
+                # Search TIDAL for the track
+                tidal_track_id = self.search_tidal_track(track_name, artist_name, throttle)
+
+                # Record result in library
+                if spotify_track_id:
+                    self.library.set_tidal_id(
+                        spotify_track_id,
+                        str(tidal_track_id) if tidal_track_id else None,
+                        available=tidal_track_id is not None
+                    )
 
             if tidal_track_id:
                 tidal_id_str = str(tidal_track_id)
@@ -582,6 +626,8 @@ class SpotifyToTidalTransfer:
                     checkpoint_entry["tracks_not_found"] = not_found_count
                     self.checkpoint["playlists"][spotify_id] = checkpoint_entry
                     self.save_checkpoint()
+                    # Also save library to persist TIDAL mappings
+                    self.library.save_library()
                 else:
                     self.log(f"  ⚠️  Batch add failed, retrying...", False)
                     time.sleep(5)
@@ -602,6 +648,8 @@ class SpotifyToTidalTransfer:
         checkpoint_entry["tracks_not_found"] = not_found_count
         self.checkpoint["playlists"][spotify_id] = checkpoint_entry
         self.save_checkpoint()
+        # Save library with all TIDAL mappings
+        self.library.save_library()
 
         match_rate = found_count / len(spotify_tracks) * 100 if spotify_tracks else 0
         self.log(f"\n✅ Completed: {name}")
@@ -690,18 +738,24 @@ class SpotifyToTidalTransfer:
                 self.stats["playlists_processed"] += 1
                 continue
 
-            # In sync mode, skip playlists that are already fully synced
-            if self.sync_only and self.is_playlist_synced(playlist):
-                tidal_info = self.tidal_playlist_cache.get(playlist['name'], {})
-                tidal_count = tidal_info.get("track_count", "?")
-                self.log(f"\n✅ Already synced: {playlist['name']} (Spotify: {playlist['tracks']['total']}, TIDAL: {tidal_count})")
-                self.stats["playlists_already_synced"] += 1
-                # Mark as completed in checkpoint so we don't check again
-                checkpoint_entry["status"] = "completed"
-                checkpoint_entry["name"] = playlist['name']
-                self.checkpoint["playlists"][spotify_id] = checkpoint_entry
-                self.save_checkpoint()
-                continue
+            # In sync mode, skip playlists that are already fully synced (exact track matching)
+            if self.sync_only:
+                # Get tracks to check exact sync status
+                spotify_tracks = self.get_all_playlist_tracks(spotify_id)
+                if self.is_playlist_synced(playlist, spotify_tracks):
+                    stats = self.library.get_sync_stats(spotify_id)
+                    tidal_stats = stats['tidal']
+                    self.log(f"\n✅ Already synced: {playlist['name']} "
+                             f"(Tracks: {stats['total_tracks']}, "
+                             f"TIDAL: {tidal_stats['available']} found, "
+                             f"{tidal_stats['unavailable']} unavailable)")
+                    self.stats["playlists_already_synced"] += 1
+                    # Mark as completed in checkpoint so we don't check again
+                    checkpoint_entry["status"] = "completed"
+                    checkpoint_entry["name"] = playlist['name']
+                    self.checkpoint["playlists"][spotify_id] = checkpoint_entry
+                    self.save_checkpoint()
+                    continue
 
             playlist_pbar.set_description(f"Playlist {idx}/{len(playlists)}: {playlist['name'][:30]}")
             result = self.transfer_playlist(playlist, throttle=1.5)
@@ -740,7 +794,20 @@ class SpotifyToTidalTransfer:
             for r in completed:
                 self.log(f"   - {r['name']}: {r['found']}/{r['total']} tracks")
 
-        self.log(f"\nFull log saved to: {self.log_file}")
+        # Show library summary
+        self.log("\n" + "-"*40)
+        self.log("LIBRARY SUMMARY")
+        self.log("-"*40)
+        self.log(self.library.get_library_summary())
+
+        # Export unavailable tracks report
+        unavailable = self.library.get_unavailable_tracks('tidal')
+        if unavailable:
+            report_file = self.library.export_unavailable_tracks('tidal')
+            self.log(f"\n📄 Tracks not on TIDAL exported to: {report_file}")
+
+        self.log(f"\n📚 Library saved to: {self.library_file}")
+        self.log(f"📝 Full log saved to: {self.log_file}")
 
 
 def show_checkpoint_status(checkpoint_file: str):
@@ -788,6 +855,24 @@ def show_checkpoint_status(checkpoint_file: str):
         print(f"Error reading checkpoint file: {e}")
 
 
+def show_library_status(library_file: str):
+    """Display the current music library status and exit."""
+    manager = LibraryManager(library_file)
+    print("\n" + "="*60)
+    print("MUSIC LIBRARY STATUS")
+    print("="*60)
+    print(manager.get_library_summary())
+
+    # Show top unavailable tracks
+    unavailable = manager.get_unavailable_tracks('tidal')
+    if unavailable:
+        print(f"\n📋 Sample tracks not on TIDAL ({len(unavailable)} total):")
+        for track in unavailable[:10]:
+            print(f"   - {track.get('artist_name', 'Unknown')} - {track.get('track_name', 'Unknown')}")
+        if len(unavailable) > 10:
+            print(f"   ... and {len(unavailable) - 10} more")
+
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
@@ -795,16 +880,18 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python spotify_to_tidal_transfer.py           # Auto-resume if checkpoint exists
-  python spotify_to_tidal_transfer.py --sync    # Only sync playlists with new tracks
-  python spotify_to_tidal_transfer.py --fresh   # Ignore checkpoint, start fresh
-  python spotify_to_tidal_transfer.py --status  # Show checkpoint status
-  python spotify_to_tidal_transfer.py --reset   # Delete checkpoint and exit
+  python spotify_to_tidal_transfer.py              # Auto-resume if checkpoint exists
+  python spotify_to_tidal_transfer.py --sync       # Only sync playlists with new tracks
+  python spotify_to_tidal_transfer.py --fresh      # Ignore checkpoint, start fresh
+  python spotify_to_tidal_transfer.py --status     # Show checkpoint status
+  python spotify_to_tidal_transfer.py --library    # Show music library status
+  python spotify_to_tidal_transfer.py --export     # Export unavailable tracks to CSV
+  python spotify_to_tidal_transfer.py --reset      # Delete checkpoint and exit
         """
     )
     parser.add_argument(
         '--sync', action='store_true',
-        help='Sync mode: only process playlists that have new tracks (skip fully synced)'
+        help='Sync mode: only process playlists that have new tracks (exact track matching)'
     )
     parser.add_argument(
         '--fresh', action='store_true',
@@ -815,8 +902,20 @@ Examples:
         help='Path to checkpoint file (default: transfer_checkpoint.json)'
     )
     parser.add_argument(
+        '--library-file', default='music_library.csv',
+        help='Path to music library CSV (default: music_library.csv)'
+    )
+    parser.add_argument(
         '--status', action='store_true',
         help='Show checkpoint status and exit'
+    )
+    parser.add_argument(
+        '--library', action='store_true',
+        help='Show music library status and exit'
+    )
+    parser.add_argument(
+        '--export', action='store_true',
+        help='Export tracks not available on TIDAL to CSV and exit'
     )
     parser.add_argument(
         '--reset', action='store_true',
@@ -832,6 +931,20 @@ if __name__ == "__main__":
         show_checkpoint_status(args.checkpoint_file)
         exit(0)
 
+    if args.library:
+        show_library_status(args.library_file)
+        exit(0)
+
+    if args.export:
+        manager = LibraryManager(args.library_file)
+        if not manager.tracks:
+            print("No tracks in library yet. Run a transfer first.")
+            exit(1)
+        output = manager.export_unavailable_tracks('tidal')
+        unavailable_count = len(manager.get_unavailable_tracks('tidal'))
+        print(f"Exported {unavailable_count} unavailable tracks to: {output}")
+        exit(0)
+
     if args.reset:
         if os.path.exists(args.checkpoint_file):
             os.remove(args.checkpoint_file)
@@ -845,7 +958,7 @@ if __name__ == "__main__":
     print("="*80)
 
     if args.sync:
-        print("\n🔄 SYNC MODE: Only processing playlists with new tracks")
+        print("\n🔄 SYNC MODE: Using exact track matching from library")
     elif args.fresh:
         print("\n⚠️  Starting fresh (ignoring any existing checkpoint)")
     else:
@@ -854,6 +967,7 @@ if __name__ == "__main__":
     transfer = SpotifyToTidalTransfer(
         checkpoint_file=args.checkpoint_file,
         fresh_start=args.fresh,
-        sync_only=args.sync
+        sync_only=args.sync,
+        library_file=args.library_file
     )
     transfer.run()

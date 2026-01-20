@@ -1,13 +1,17 @@
 # Spotify to TIDAL Playlist Transfer
 
-Transfer all your Spotify playlists to TIDAL with automatic resume support.
+Transfer all your Spotify playlists to TIDAL with automatic resume support and cross-platform library tracking.
 
 ## Features
 
 - Transfers all owned playlists and tracks
 - **Auto-resume**: Safe to interrupt with Ctrl+C, progress is saved
 - **Duplicate prevention**: Detects existing TIDAL playlists by name
+- **Music Library**: CSV-based tracking of all tracks across platforms
+- **Exact sync detection**: Knows exactly which tracks need syncing (not just percentage-based)
+- **Unavailable track reports**: Exports tracks not found on TIDAL
 - **Progress bars**: Visual feedback during transfer
+- **Future-ready**: Architecture supports SoundCloud and other platforms
 - Detailed logging to file
 
 ## Quick Start
@@ -42,7 +46,7 @@ Transfer all your Spotify playlists to TIDAL with automatic resume support.
 # Standard run (auto-resumes if interrupted)
 python spotify_to_tidal_transfer.py
 
-# Sync mode - only process playlists with new tracks (for periodic syncing)
+# Sync mode - only process playlists with new tracks (exact track matching)
 python spotify_to_tidal_transfer.py --sync
 
 # Start fresh, ignore existing checkpoint
@@ -50,6 +54,12 @@ python spotify_to_tidal_transfer.py --fresh
 
 # Check transfer progress
 python spotify_to_tidal_transfer.py --status
+
+# View music library statistics
+python spotify_to_tidal_transfer.py --library
+
+# Export tracks not available on TIDAL to CSV
+python spotify_to_tidal_transfer.py --export
 
 # Delete checkpoint and start over
 python spotify_to_tidal_transfer.py --reset
@@ -69,9 +79,27 @@ python spotify_to_tidal_transfer.py --reset
 
 | File | Purpose |
 |------|---------|
+| `music_library.csv` | Cross-platform track database (persistent) |
 | `transfer_checkpoint.json` | Progress state (auto-deleted on completion) |
 | `tidal_session.json` | TIDAL auth session cache |
+| `unavailable_on_tidal.csv` | Tracks not found on TIDAL |
 | `transfer_log_*.txt` | Detailed transfer log |
+
+## Music Library
+
+The `music_library.csv` tracks every song across all platforms:
+
+```csv
+spotify_id,tidal_id,track_name,artist_name,spotify_available,tidal_available,last_synced
+4iV5W9uYEdYUVa79Axb7Rh,12345678,Circles,Post Malone,True,True,2024-01-15T10:30:00
+3n3Ppam7vgaVa1iaRUc9Lp,,Mr. Brightside,The Killers,True,False,2024-01-15T10:31:00
+```
+
+### Benefits
+- **Exact sync detection**: Knows precisely which tracks are synced vs. missing
+- **No duplicate searches**: Remembers tracks that aren't on TIDAL
+- **Cross-platform ready**: Architecture supports Spotify, TIDAL, SoundCloud
+- **Exportable reports**: Generate lists of unavailable tracks
 
 ## Notes
 
