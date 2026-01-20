@@ -42,6 +42,9 @@ Transfer all your Spotify playlists to TIDAL with automatic resume support.
 # Standard run (auto-resumes if interrupted)
 python spotify_to_tidal_transfer.py
 
+# Sync mode - only process playlists with new tracks (for periodic syncing)
+python spotify_to_tidal_transfer.py --sync
+
 # Start fresh, ignore existing checkpoint
 python spotify_to_tidal_transfer.py --fresh
 

@@ -18,6 +18,7 @@ uv pip install tidalapi spotipy tqdm python-dotenv
 python spotify_to_tidal_transfer.py
 
 # CLI options
+python spotify_to_tidal_transfer.py --sync    # Only sync new/changed playlists
 python spotify_to_tidal_transfer.py --fresh   # Ignore checkpoint
 python spotify_to_tidal_transfer.py --status  # Show progress
 python spotify_to_tidal_transfer.py --reset   # Delete checkpoint
