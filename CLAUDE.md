@@ -9,8 +9,10 @@ Python utility for transferring Spotify playlists to TIDAL with automatic resume
 ## Commands
 
 ```bash
-# Install dependencies
-pip install tidalapi spotipy tqdm python-dotenv
+# Create virtual environment and install dependencies
+uv venv
+source .venv/bin/activate
+uv pip install tidalapi spotipy tqdm python-dotenv
 
 # Run transfer (auto-resumes from checkpoint)
 python spotify_to_tidal_transfer.py

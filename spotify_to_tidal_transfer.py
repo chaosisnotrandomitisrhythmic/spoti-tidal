@@ -15,7 +15,7 @@ Features:
 
 Setup:
 1. Copy .env.example to .env and add your Spotify API credentials
-2. Install dependencies: pip install tidalapi spotipy tqdm python-dotenv
+2. Create venv and install: uv venv && source .venv/bin/activate && uv pip install tidalapi spotipy tqdm python-dotenv
 3. Run: python spotify_to_tidal_transfer.py
 
 For Spotify API credentials, visit: https://developer.spotify.com/dashboard
@@ -45,7 +45,7 @@ try:
 except ImportError as e:
     print("ERROR: Required packages not installed.")
     print("Please run:")
-    print("  pip install tidalapi spotipy tqdm python-dotenv")
+    print("  uv pip install tidalapi spotipy tqdm python-dotenv")
     exit(1)
 
 

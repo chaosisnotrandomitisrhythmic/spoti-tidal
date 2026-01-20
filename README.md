@@ -12,9 +12,11 @@ Transfer all your Spotify playlists to TIDAL with automatic resume support.
 
 ## Quick Start
 
-1. **Install dependencies**
+1. **Create virtual environment and install dependencies**
    ```bash
-   pip install tidalapi spotipy tqdm python-dotenv
+   uv venv
+   source .venv/bin/activate
+   uv pip install tidalapi spotipy tqdm python-dotenv
    ```
 
 2. **Configure Spotify credentials**
@@ -30,6 +32,7 @@ Transfer all your Spotify playlists to TIDAL with automatic resume support.
 
 3. **Run the transfer**
    ```bash
+   source .venv/bin/activate
    python spotify_to_tidal_transfer.py
    ```
 
