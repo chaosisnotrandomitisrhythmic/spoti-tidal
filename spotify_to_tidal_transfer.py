@@ -28,6 +28,7 @@ import argparse
 import tempfile
 import shutil
 from datetime import datetime
+from pathlib import Path
 from typing import List, Dict, Optional, Set
 
 # Load environment variables from .env file
@@ -264,14 +265,14 @@ class SpotifyToTidalTransfer:
             session = tidalapi.Session()
 
             # Try to load existing session
-            session_file = 'tidal_session.json'
-            if os.path.exists(session_file):
+            session_file = Path('tidal_session.json')
+            if session_file.exists():
                 try:
-                    session.load_oauth_session_from_file(session_file)
+                    session.load_session_from_file(session_file)
                     if session.check_login():
                         self.tidal = session
                         user = session.user
-                        self.log(f"✅ Connected to TIDAL as: {user.name if user else 'Unknown'}")
+                        self.log(f"✅ Connected to TIDAL as: {user.first_name or user.username if user else 'Unknown'}")
                         return True
                 except:
                     pass
@@ -283,11 +284,11 @@ class SpotifyToTidalTransfer:
             future.result()
 
             # Save session
-            session.save_oauth_session_to_file(session_file)
+            session.save_session_to_file(session_file)
             self.tidal = session
 
             user = session.user
-            self.log(f"✅ Connected to TIDAL as: {user.name if user else 'Unknown'}")
+            self.log(f"✅ Connected to TIDAL as: {user.first_name or user.username if user else 'Unknown'}")
             return True
 
         except Exception as e:
