@@ -46,16 +46,24 @@ def run_sync() -> dict:
         "tracks_found": 0,
         "tracks_not_found": 0,
         "new_playlists": [],
+        "new_tracks": [],  # Track names that were added
         "success": result.returncode == 0
     }
 
+    current_playlist = None
     for line in output.split('\n'):
         if "Already synced:" in line:
             stats["playlists_skipped"] += 1
+        elif "Processing:" in line:
+            # Extract playlist name: "Processing: Playlist Name (50 tracks)"
+            try:
+                current_playlist = line.split("Processing:")[1].split("(")[0].strip()
+            except:
+                pass
         elif "Successfully transferred:" in line:
             # Next lines contain playlist names
             pass
-        elif "- " in line and ":" in line and "tracks" in line:
+        elif "- " in line and ":" in line and "tracks" in line and not line.strip().startswith("⏭"):
             # Format: "   - Playlist Name: 45/50 tracks"
             playlist_info = line.strip().lstrip("- ")
             stats["new_playlists"].append(playlist_info)
@@ -70,6 +78,50 @@ def run_sync() -> dict:
                 stats["tracks_not_found"] = int(line.split(":")[-1].strip())
             except:
                 pass
+        # Capture added tracks (not skipped, not "not found")
+        elif "Already in playlist:" not in line and "Not found:" not in line and "Not on TIDAL" not in line:
+            # Look for successful track additions in the log
+            pass
+
+    # Parse the log file for actual track names added
+    log_files = sorted(SCRIPT_DIR.glob("transfer_log_*.txt"), reverse=True)
+    if log_files:
+        latest_log = log_files[0]
+        try:
+            with open(latest_log, 'r') as f:
+                log_content = f.read()
+
+            # Find tracks that were found (not skipped, not "not found")
+            for line in log_content.split('\n'):
+                # Skip lines about tracks not found or already in playlist
+                if any(skip in line for skip in ["Not found:", "Already in playlist:", "Not on TIDAL", "❌", "⏭️"]):
+                    continue
+                # We need a different approach - check the library for recently synced tracks
+        except:
+            pass
+
+    # Get recently synced tracks from library
+    try:
+        from library_manager import LibraryManager
+        from datetime import datetime, timedelta
+
+        lib = LibraryManager(SCRIPT_DIR / "music_library.csv")
+        now = datetime.now()
+        recent_cutoff = now - timedelta(hours=1)  # Tracks synced in the last hour
+
+        for track in lib.tracks.values():
+            last_synced = track.get('last_synced', '')
+            if last_synced and track.get('tidal_available') is True:
+                try:
+                    sync_time = datetime.fromisoformat(last_synced)
+                    if sync_time > recent_cutoff:
+                        artist = track.get('artist_name', 'Unknown')
+                        name = track.get('track_name', 'Unknown')
+                        stats["new_tracks"].append(f"{artist} - {name}")
+                except:
+                    pass
+    except Exception as e:
+        print(f"Could not read library: {e}")
 
     return stats
 
@@ -84,15 +136,27 @@ def format_obsidian_entry(stats: dict) -> str:
 All {stats['playlists_skipped']} playlists already synced. No changes.
 """
 
-    if stats["new_playlists"]:
-        playlist_lines = "\n".join(f"  - {p}" for p in stats["new_playlists"])
-        return f"""
-### 🎵 Spotify-TIDAL Sync ({now})
-**Synced {stats['playlists_synced']} playlist(s):**
-{playlist_lines}
+    if stats["new_playlists"] or stats["new_tracks"]:
+        lines = [f"### 🎵 Spotify-TIDAL Sync ({now})"]
 
-Tracks: {stats['tracks_found']} found, {stats['tracks_not_found']} unavailable on TIDAL
-"""
+        if stats["new_playlists"]:
+            lines.append(f"**Synced {stats['playlists_synced']} playlist(s):**")
+            for p in stats["new_playlists"]:
+                lines.append(f"  - {p}")
+
+        if stats["new_tracks"]:
+            lines.append("")
+            lines.append(f"**New tracks added ({len(stats['new_tracks'])}):**")
+            # Show up to 15 tracks, then summarize
+            for track in stats["new_tracks"][:15]:
+                lines.append(f"  - {track}")
+            if len(stats["new_tracks"]) > 15:
+                lines.append(f"  - *...and {len(stats['new_tracks']) - 15} more*")
+
+        lines.append("")
+        lines.append(f"Tracks: {stats['tracks_found']} found, {stats['tracks_not_found']} unavailable on TIDAL")
+
+        return "\n" + "\n".join(lines) + "\n"
 
     # Fallback
     return f"""
@@ -139,7 +203,12 @@ def main():
             "playlists_skipped": 28,
             "tracks_found": 89,
             "tracks_not_found": 11,
-            "new_playlists": ["New Playlist: 45/50 tracks", "Updated Mix: 44/50 tracks"]
+            "new_playlists": ["New Playlist: 45/50 tracks", "Updated Mix: 44/50 tracks"],
+            "new_tracks": [
+                "Daft Punk - Around The World",
+                "Kraftwerk - Trans-Europe Express",
+                "New Order - Blue Monday"
+            ]
         }
         print(format_obsidian_entry(sample))
         return
