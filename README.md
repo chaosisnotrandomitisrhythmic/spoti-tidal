@@ -8,102 +8,77 @@ Transfer all your Spotify playlists to TIDAL with automatic resume support and c
 - **Auto-resume**: Safe to interrupt with Ctrl+C, progress is saved
 - **Duplicate prevention**: Detects existing TIDAL playlists by name
 - **Music Library**: CSV-based tracking of all tracks across platforms
-- **Exact sync detection**: Knows exactly which tracks need syncing (not just percentage-based)
+- **Exact sync detection**: Knows exactly which tracks need syncing
+- **Daily sync**: Cron job with Obsidian notifications
 - **Unavailable track reports**: Exports tracks not found on TIDAL
-- **Progress bars**: Visual feedback during transfer
 - **Future-ready**: Architecture supports SoundCloud and other platforms
-- Detailed logging to file
 
 ## Quick Start
 
-1. **Create virtual environment and install dependencies**
-   ```bash
-   uv venv
-   source .venv/bin/activate
-   uv pip install tidalapi spotipy tqdm python-dotenv
-   ```
+```bash
+# 1. Create virtual environment
+uv venv && source .venv/bin/activate
+uv pip install tidalapi spotipy tqdm python-dotenv
 
-2. **Configure Spotify credentials**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your Spotify API credentials
-   ```
+# 2. Configure Spotify credentials
+cp .env.example .env
+# Edit .env with your Spotify API credentials
 
-   Get credentials from [Spotify Developer Dashboard](https://developer.spotify.com/dashboard):
-   - Create an app
-   - Copy Client ID and Client Secret to `.env`
-   - Add redirect URI: `http://127.0.0.1:47281/callback`
+# 3. Run the transfer
+python spotify_to_tidal_transfer.py
+```
 
-3. **Run the transfer**
-   ```bash
-   source .venv/bin/activate
-   python spotify_to_tidal_transfer.py
-   ```
+Get Spotify credentials from [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
 
 ## Usage
 
 ```bash
-# Standard run (auto-resumes if interrupted)
-python spotify_to_tidal_transfer.py
-
-# Sync mode - only process playlists with new tracks (exact track matching)
-python spotify_to_tidal_transfer.py --sync
-
-# Start fresh, ignore existing checkpoint
-python spotify_to_tidal_transfer.py --fresh
-
-# Check transfer progress
-python spotify_to_tidal_transfer.py --status
-
-# View music library statistics
-python spotify_to_tidal_transfer.py --library
-
-# Export tracks not available on TIDAL to CSV
-python spotify_to_tidal_transfer.py --export
-
-# Delete checkpoint and start over
-python spotify_to_tidal_transfer.py --reset
+python spotify_to_tidal_transfer.py              # Full transfer (auto-resumes)
+python spotify_to_tidal_transfer.py --sync       # Only sync new tracks
+python spotify_to_tidal_transfer.py --status     # Show checkpoint progress
+python spotify_to_tidal_transfer.py --library    # Show library stats
+python spotify_to_tidal_transfer.py --export     # Export unavailable tracks
+python spotify_to_tidal_transfer.py --fresh      # Ignore checkpoint
+python spotify_to_tidal_transfer.py --reset      # Delete checkpoint
 ```
 
-## How It Works
+## Directory Structure
 
-1. Authenticates with Spotify (browser OAuth) and TIDAL (device code)
-2. Fetches all your owned Spotify playlists
-3. For each playlist:
-   - Checks if it already exists on TIDAL
-   - Searches for each track on TIDAL
-   - Adds found tracks in batches of 50
-   - Saves progress after each batch
-
-## Files Created
-
-| File | Purpose |
-|------|---------|
-| `music_library.csv` | Cross-platform track database (persistent) |
-| `transfer_checkpoint.json` | Progress state (auto-deleted on completion) |
-| `tidal_session.json` | TIDAL auth session cache |
-| `unavailable_on_tidal.csv` | Tracks not found on TIDAL |
-| `transfer_log_*.txt` | Detailed transfer log |
-
-## Music Library
-
-The `music_library.csv` tracks every song across all platforms:
-
-```csv
-spotify_id,tidal_id,track_name,artist_name,spotify_available,tidal_available,last_synced
-4iV5W9uYEdYUVa79Axb7Rh,12345678,Circles,Post Malone,True,True,2024-01-15T10:30:00
-3n3Ppam7vgaVa1iaRUc9Lp,,Mr. Brightside,The Killers,True,False,2024-01-15T10:31:00
+```
+spoti_tidal/
+├── spotify_to_tidal_transfer.py   # Main transfer script
+├── library_manager.py             # Cross-platform track library
+├── daily_sync.py                  # Daily cron job with Obsidian logging
+├── .env                           # Spotify credentials (not in git)
+├── data/                          # Runtime data (not in git)
+│   ├── tidal_session.json         # TIDAL auth cache
+│   ├── checkpoint.json            # Transfer progress
+│   └── library.csv                # Cross-platform track database
+├── logs/                          # Logs (not in git)
+│   ├── transfer_log_*.txt         # Transfer logs
+│   └── cron.log                   # Daily sync log
+└── docs/                          # Documentation
+    └── SETUP_INSTRUCTIONS.md      # Detailed setup guide
 ```
 
-### Benefits
-- **Exact sync detection**: Knows precisely which tracks are synced vs. missing
-- **No duplicate searches**: Remembers tracks that aren't on TIDAL
-- **Cross-platform ready**: Architecture supports Spotify, TIDAL, SoundCloud
-- **Exportable reports**: Generate lists of unavailable tracks
+## Daily Sync
+
+Runs automatically at 6 PM via cron, appends results to your Obsidian daily log:
+
+```markdown
+### 🎵 Spotify-TIDAL Sync (18:00)
+**Synced 2 playlist(s):**
+  - New Playlist: 45/50 tracks
+**New tracks added (3):**
+  - Daft Punk - Around The World
+  - Kraftwerk - Trans-Europe Express
+```
+
+Manual run: `python daily_sync.py` or `python daily_sync.py --dry`
 
 ## Notes
 
 - Only transfers playlists you own (not followed playlists)
-- Not all Spotify tracks may be available on TIDAL (~85-95% match rate)
+- ~85-95% track match rate (some tracks aren't on TIDAL)
 - Uses throttling to avoid API rate limits (1.5s between searches)
 - Full transfer of ~30 playlists takes 2-4 hours

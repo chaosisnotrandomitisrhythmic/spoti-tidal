@@ -48,6 +48,23 @@ SPOTIFY_REDIRECT_URI=http://127.0.0.1:47281/callback
 |------|---------|
 | `spotify_to_tidal_transfer.py` | Main transfer script |
 | `library_manager.py` | Cross-platform track library management |
+| `daily_sync.py` | Cron job for daily sync with Obsidian logging |
+
+### Directory Structure
+
+```
+data/           # Runtime data (gitignored)
+├── tidal_session.json
+├── checkpoint.json
+└── library.csv
+
+logs/           # Logs (gitignored)
+├── transfer_log_*.txt
+└── cron.log
+
+docs/           # Documentation
+└── SETUP_INSTRUCTIONS.md
+```
 
 ### SpotifyToTidalTransfer Class
 
@@ -96,11 +113,10 @@ spotify_id,tidal_id,soundcloud_id,track_name,artist_name,album_name,playlist_ids
 | File | Purpose | Git |
 |------|---------|-----|
 | `.env` | Spotify credentials | ignored |
-| `tidal_session.json` | TIDAL auth cache | ignored |
-| `transfer_checkpoint.json` | Transfer progress | ignored |
-| `music_library.csv` | Cross-platform track database | ignored |
-| `unavailable_on_*.csv` | Export of unavailable tracks | ignored |
-| `transfer_log_*.txt` | Execution logs | ignored |
+| `data/tidal_session.json` | TIDAL auth cache | ignored |
+| `data/checkpoint.json` | Transfer progress | ignored |
+| `data/library.csv` | Cross-platform track database | ignored |
+| `logs/*.txt` | Execution logs | ignored |
 
 ## API Rate Limiting
 

@@ -54,7 +54,7 @@ class LibraryManager:
         'notes'
     ]
 
-    def __init__(self, library_file: str = "music_library.csv"):
+    def __init__(self, library_file: str = "data/library.csv"):
         """
         Initialize the library manager.
 
@@ -394,7 +394,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description='Music Library Manager')
-    parser.add_argument('--library', default='music_library.csv', help='Path to library CSV')
+    parser.add_argument('--library', default='data/library.csv', help='Path to library CSV')
     parser.add_argument('--stats', action='store_true', help='Show library statistics')
     parser.add_argument('--export-unavailable', metavar='PLATFORM',
                         help='Export tracks unavailable on PLATFORM (tidal/soundcloud)')

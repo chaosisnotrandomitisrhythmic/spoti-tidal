@@ -3,20 +3,27 @@
 Spotify to TIDAL Playlist Transfer
 
 A tool to transfer all your Spotify playlists to TIDAL with automatic resume
-support, duplicate prevention, and progress tracking.
+support, duplicate prevention, cross-platform library tracking, and progress bars.
 
 Features:
 - Transfers ALL playlists and tracks (handles pagination)
-- Automatic checkpoint/resume if interrupted
+- Automatic checkpoint/resume if interrupted (safe to Ctrl+C)
+- Cross-platform music library (CSV) for exact sync detection
 - Detects existing TIDAL playlists to avoid duplicates
-- Skips tracks already in target playlist
+- Skips tracks already searched (remembers unavailable tracks)
 - Progress bars for visual feedback
-- Detailed logging
+- Detailed logging to logs/ directory
+
+Directory Structure:
+    data/           - Session files, checkpoints, library CSV
+    logs/           - Transfer logs and cron logs
+    docs/           - Setup instructions
 
 Setup:
 1. Copy .env.example to .env and add your Spotify API credentials
-2. Create venv and install: uv venv && source .venv/bin/activate && uv pip install tidalapi spotipy tqdm python-dotenv
-3. Run: python spotify_to_tidal_transfer.py
+2. Create venv: uv venv && source .venv/bin/activate
+3. Install deps: uv pip install tidalapi spotipy tqdm python-dotenv
+4. Run: python spotify_to_tidal_transfer.py
 
 For Spotify API credentials, visit: https://developer.spotify.com/dashboard
 """
@@ -60,8 +67,8 @@ class SpotifyToTidalTransfer:
     and checkpoint-based resume functionality.
     """
 
-    def __init__(self, checkpoint_file: str = "transfer_checkpoint.json", fresh_start: bool = False,
-                 sync_only: bool = False, library_file: str = "music_library.csv"):
+    def __init__(self, checkpoint_file: str = "data/checkpoint.json", fresh_start: bool = False,
+                 sync_only: bool = False, library_file: str = "data/library.csv"):
         """
         Initialize the transfer manager.
 
@@ -81,7 +88,9 @@ class SpotifyToTidalTransfer:
             "total_tracks_not_found": 0,
             "start_time": datetime.now()
         }
-        self.log_file = f"transfer_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        # Ensure logs directory exists
+        os.makedirs("logs", exist_ok=True)
+        self.log_file = f"logs/transfer_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         self.checkpoint_file = checkpoint_file
         self.checkpoint = None
         self.fresh_start = fresh_start
@@ -161,8 +170,8 @@ class SpotifyToTidalTransfer:
     def clear_checkpoint(self):
         """Remove checkpoint file after successful completion."""
         if os.path.exists(self.checkpoint_file):
-            # Archive the completed checkpoint
-            archive_name = f"transfer_checkpoint_completed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            # Archive the completed checkpoint to data/
+            archive_name = f"data/checkpoint_completed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             shutil.copy(self.checkpoint_file, archive_name)
             os.remove(self.checkpoint_file)
             self.log(f"Checkpoint archived to {archive_name}")
@@ -318,7 +327,9 @@ class SpotifyToTidalTransfer:
             session = tidalapi.Session()
 
             # Try to load existing session
-            session_file = Path('tidal_session.json')
+            # Ensure data directory exists
+            os.makedirs("data", exist_ok=True)
+            session_file = Path('data/tidal_session.json')
             if session_file.exists():
                 try:
                     session.load_session_from_file(session_file)
@@ -898,12 +909,12 @@ Examples:
         help='Start fresh, ignore existing checkpoint'
     )
     parser.add_argument(
-        '--checkpoint-file', default='transfer_checkpoint.json',
-        help='Path to checkpoint file (default: transfer_checkpoint.json)'
+        '--checkpoint-file', default='data/checkpoint.json',
+        help='Path to checkpoint file (default: data/checkpoint.json)'
     )
     parser.add_argument(
-        '--library-file', default='music_library.csv',
-        help='Path to music library CSV (default: music_library.csv)'
+        '--library-file', default='data/library.csv',
+        help='Path to music library CSV (default: data/library.csv)'
     )
     parser.add_argument(
         '--status', action='store_true',

@@ -3,11 +3,14 @@
 Daily Spotify-TIDAL Sync
 
 Runs sync and appends results to today's Obsidian daily log.
-Designed to run via cron once a day.
+Designed to run via cron at 6 PM daily (when daily log exists).
 
 Usage:
     python daily_sync.py          # Run sync and log to Obsidian
     python daily_sync.py --dry    # Show what would be logged without syncing
+
+Cron Setup (runs at 6 PM daily):
+    0 18 * * * /path/to/.venv/bin/python /path/to/daily_sync.py >> logs/cron.log 2>&1
 """
 
 import os
@@ -84,7 +87,7 @@ def run_sync() -> dict:
             pass
 
     # Parse the log file for actual track names added
-    log_files = sorted(SCRIPT_DIR.glob("transfer_log_*.txt"), reverse=True)
+    log_files = sorted((SCRIPT_DIR / "logs").glob("transfer_log_*.txt"), reverse=True)
     if log_files:
         latest_log = log_files[0]
         try:
@@ -105,7 +108,7 @@ def run_sync() -> dict:
         from library_manager import LibraryManager
         from datetime import datetime, timedelta
 
-        lib = LibraryManager(SCRIPT_DIR / "music_library.csv")
+        lib = LibraryManager(SCRIPT_DIR / "data" / "library.csv")
         now = datetime.now()
         recent_cutoff = now - timedelta(hours=1)  # Tracks synced in the last hour
 
